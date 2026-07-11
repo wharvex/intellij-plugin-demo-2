@@ -10,6 +10,12 @@ import com.intellij.ui.components.JBPanel
 import com.intellij.ui.content.ContentFactory
 import com.github.wharvex.intellijplugindemo2.MyBundle
 import com.github.wharvex.intellijplugindemo2.services.MyProjectService
+import com.intellij.database.psi.DbPsiFacade
+import com.intellij.database.util.DasUtil
+import com.intellij.ui.components.JBList
+import com.intellij.ui.components.JBScrollPane
+import java.awt.BorderLayout
+import javax.swing.DefaultListModel
 import javax.swing.JButton
 
 
@@ -30,16 +36,24 @@ class MyToolWindowFactory : ToolWindowFactory {
     class MyToolWindow(toolWindow: ToolWindow) {
 
         private val service = toolWindow.project.service<MyProjectService>()
+        private val project = toolWindow.project
 
         fun getContent() = JBPanel<JBPanel<*>>().apply {
-            val label = JBLabel(MyBundle["randomLabel", "?"])
+            layout = BorderLayout()
 
-            add(label)
-            add(JButton(MyBundle["shuffle"]).apply {
-                addActionListener {
-                    label.text = MyBundle["randomLabel", service.getRandomNumber()]
+            val model = DefaultListModel<String>()
+            val list = JBList(model)
+
+            val facade = DbPsiFacade.getInstance(project)
+            for (ds in facade.dataSources) {
+                model.addElement("DataSource: ${ds.name}")
+                // Iterate tables
+                DasUtil.getTables(ds).forEach { table ->
+                    model.addElement("  Table: ${table.name}")
                 }
-            })
+            }
+
+            add(JBScrollPane(list), BorderLayout.CENTER)
         }
     }
 }
