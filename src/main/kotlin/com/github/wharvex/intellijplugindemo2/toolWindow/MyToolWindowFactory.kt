@@ -43,17 +43,32 @@ class MyToolWindowFactory : ToolWindowFactory {
 
             val model = DefaultListModel<String>()
             val list = JBList(model)
+            val emptyLabel = JBLabel("No data sources or tables found.").apply {
+                horizontalAlignment = JBLabel.CENTER
+                isVisible = false
+            }
 
-            val facade = DbPsiFacade.getInstance(project)
-            for (ds in facade.dataSources) {
-                model.addElement("DataSource: ${ds.name}")
-                // Iterate tables
-                DasUtil.getTables(ds).forEach { table ->
-                    model.addElement("  Table: ${table.name}")
+            val centerPanel = JBPanel<JBPanel<*>>(BorderLayout()).apply {
+                add(JBScrollPane(list), BorderLayout.CENTER)
+                add(emptyLabel, BorderLayout.NORTH)
+            }
+
+            val loadButton = JButton("Load Data Sources").apply {
+                addActionListener {
+                    model.clear()
+                    val facade = DbPsiFacade.getInstance(project)
+                    for (ds in facade.dataSources) {
+                        model.addElement("DataSource: ${ds.name}")
+                        DasUtil.getTables(ds).forEach { table ->
+                            model.addElement("  Table: ${table.name}")
+                        }
+                    }
+                    emptyLabel.isVisible = model.isEmpty
                 }
             }
 
-            add(JBScrollPane(list), BorderLayout.CENTER)
+            add(loadButton, BorderLayout.NORTH)
+            add(centerPanel, BorderLayout.CENTER)
         }
     }
 }
