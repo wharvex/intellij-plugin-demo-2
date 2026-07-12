@@ -16,7 +16,7 @@ import com.intellij.ui.components.JBScrollPane
 import java.awt.BorderLayout
 import javax.swing.DefaultListModel
 import javax.swing.JButton
-
+import com.intellij.database.util.DbImplUtil
 
 class MyToolWindowFactory : ToolWindowFactory {
 
@@ -58,6 +58,7 @@ class MyToolWindowFactory : ToolWindowFactory {
                     val facade = DbPsiFacade.getInstance(project)
                     for (ds in facade.dataSources) {
                         model.addElement("DataSource: ${ds.name}")
+                        model.addElement("    Is connected: " + if (DbImplUtil.isConnected(ds)) "Yes" else "No")
                         DasUtil.getTables(ds).forEach { table ->
                             model.addElement("  Table: ${table.name}")
                         }
