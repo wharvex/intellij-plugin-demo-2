@@ -18,21 +18,23 @@ class MyProjectActivity : ProjectActivity {
                 if (added) {
                     // triggered when a new DB connection is created
                     val newDataSource = connection.connectionPoint.dataSource
-                    val oldDataSources = mutableSetOf<LocalDataSource>()
+                    val driverManager = JdbcDriverManager.getDriverManager(project)
                     for (session in DatabaseSessionManager.getSessions(project)) {
                         val dataSource = session.connectionPoint.dataSource
-                        if (dataSource !== newDataSource && canClose(session)) {
+                        // Compare by uniqueId, not reference: a connection tied to "the same"
+                        // configured data source can carry a distinct LocalDataSource instance
+                        // (e.g. from background introspection or a temporary run configuration),
+                        // so `!==` can wrongly treat the data source you're actively using as old.
+                        if (dataSource.uniqueId != newDataSource.uniqueId && canClose(session)) {
+                            val configuration = session.configuration
                             close(session)
-                            oldDataSources.add(dataSource)
-                        }
-                    }
 
-                    // close(session) only tears down the console session UI object; it never
-                    // releases the underlying JDBC driver process, so isConnected() would keep
-                    // reporting these data sources as connected without this.
-                    val driverManager = JdbcDriverManager.getDriverManager(project)
-                    for (dataSource in oldDataSources) {
-                        for (configuration in driverManager.getActiveConfigurations(dataSource)) {
+                            // close(session) only tears down the console session UI object; it
+                            // never releases the underlying JDBC driver process, so isConnected()
+                            // would keep reporting the data source as connected without this.
+                            // Release only the configuration this specific session used, not every
+                            // active configuration on the data source, so a second, still-busy
+                            // session on the same data source isn't disconnected as collateral damage.
                             driverManager.releaseDriver(dataSource, configuration)
                         }
                     }
