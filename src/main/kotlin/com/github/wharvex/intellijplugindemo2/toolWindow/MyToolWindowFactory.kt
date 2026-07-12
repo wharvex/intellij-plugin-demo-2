@@ -59,9 +59,9 @@ class MyToolWindowFactory : ToolWindowFactory {
                     for (ds in facade.dataSources) {
                         model.addElement("DataSource: ${ds.name}")
                         model.addElement("    Is connected: " + if (DbImplUtil.isConnected(ds)) "Yes" else "No")
-                        DasUtil.getTables(ds).forEach { table ->
-                            model.addElement("  Table: ${table.name}")
-                        }
+                        // DasUtil.getTables(ds).forEach { table ->
+                        //     model.addElement("  Table: ${table.name}")
+                        // }
                     }
                     emptyLabel.isVisible = model.isEmpty
                 }
