@@ -8,7 +8,6 @@ import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPanel
 import com.intellij.ui.content.ContentFactory
-import com.github.wharvex.intellijplugindemo2.MyBundle
 import com.github.wharvex.intellijplugindemo2.services.MyProjectService
 import com.intellij.database.psi.DbPsiFacade
 import com.intellij.database.util.DasUtil
