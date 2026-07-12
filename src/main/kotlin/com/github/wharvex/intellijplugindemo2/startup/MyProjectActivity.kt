@@ -10,10 +10,13 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.database.console.session.canClose
 import com.intellij.database.console.session.close
+import com.intellij.openapi.application.EDT
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -37,24 +40,31 @@ class MyProjectActivity : ProjectActivity {
                             // killed as collateral damage. Wait for it to settle instead of guessing a delay.
                             awaitIdentitySettled(project, newDataSource)
 
-                            val driverManager = JdbcDriverManager.getDriverManager(project)
-                            for (session in DatabaseSessionManager.getSessions(project)) {
-                                val dataSource = session.connectionPoint.dataSource
-                                // Compare by uniqueId, not reference: a connection tied to "the same"
-                                // configured data source can carry a distinct LocalDataSource instance
-                                // (e.g. from background introspection or a temporary run configuration),
-                                // so `!==` can wrongly treat the data source you're actively using as old.
-                                if (dataSource.uniqueId != newDataSource.uniqueId && canClose(session)) {
-                                    val configuration = session.configuration
-                                    close(session)
+                            // close(session) disposes the console's UI (RunnerLayoutUiImpl, etc.), which
+                            // asserts it's running on the EDT. The listener callback used to run on the EDT
+                            // for free (DatabaseConnectionManager dispatches connectionChanged via
+                            // invokeLater), but this coroutine's dispatcher isn't the EDT, so hop back
+                            // explicitly before touching any of that UI.
+                            withContext(Dispatchers.EDT) {
+                                val driverManager = JdbcDriverManager.getDriverManager(project)
+                                for (session in DatabaseSessionManager.getSessions(project)) {
+                                    val dataSource = session.connectionPoint.dataSource
+                                    // Compare by uniqueId, not reference: a connection tied to "the same"
+                                    // configured data source can carry a distinct LocalDataSource instance
+                                    // (e.g. from background introspection or a temporary run configuration),
+                                    // so `!==` can wrongly treat the data source you're actively using as old.
+                                    if (dataSource.uniqueId != newDataSource.uniqueId && canClose(session)) {
+                                        val configuration = session.configuration
+                                        close(session)
 
-                                    // close(session) only tears down the console session UI object; it
-                                    // never releases the underlying JDBC driver process, so isConnected()
-                                    // would keep reporting the data source as connected without this.
-                                    // Release only the configuration this specific session used, not every
-                                    // active configuration on the data source, so a second, still-busy
-                                    // session on the same data source isn't disconnected as collateral damage.
-                                    driverManager.releaseDriver(dataSource, configuration)
+                                        // close(session) only tears down the console session UI object; it
+                                        // never releases the underlying JDBC driver process, so isConnected()
+                                        // would keep reporting the data source as connected without this.
+                                        // Release only the configuration this specific session used, not every
+                                        // active configuration on the data source, so a second, still-busy
+                                        // session on the same data source isn't disconnected as collateral damage.
+                                        driverManager.releaseDriver(dataSource, configuration)
+                                    }
                                 }
                             }
                         }
