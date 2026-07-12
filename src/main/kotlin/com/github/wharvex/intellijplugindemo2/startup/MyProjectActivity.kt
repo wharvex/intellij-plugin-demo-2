@@ -10,7 +10,9 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.database.console.session.canClose
 import com.intellij.database.console.session.close
+import com.intellij.database.run.ConsoleRunConfiguration
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.diagnostic.thisLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
@@ -24,12 +26,30 @@ class MyProjectActivity : ProjectActivity {
 
     override suspend fun execute(project: Project) {
         coroutineScope {
+            // --- TEMPORARY DIAGNOSTIC ---
+            // Logs every driver termination project-wide, ours and the platform's own internal ones
+            // alike, so we can see whether/when the *new* data source's driver gets torn down and
+            // correlate it against our own close/release timestamps below. Remove once the collateral
+            // -kill mechanism is confirmed or ruled out.
+            project.messageBus.connect().subscribe(JdbcDriverManager.TOPIC, object : JdbcDriverManager.Listener {
+                override fun onTerminated(dataSource: LocalDataSource, configuration: ConsoleRunConfiguration?) {
+                    thisLogger().warn(
+                        "[single-conn-diag] onTerminated t=${System.currentTimeMillis()} " +
+                                "uniqueId=${dataSource.uniqueId} name=${dataSource.name} config=$configuration"
+                    )
+                }
+            })
+
             project.messageBus.connect().subscribe(
                 DatabaseConnectionManager.TOPIC,
                 DatabaseConnectionManager.Listener { connection, added ->
                     if (added) {
                         // triggered when a new DB connection is created
                         val newDataSource = connection.connectionPoint.dataSource
+                        thisLogger().warn(
+                            "[single-conn-diag] new connection t=${System.currentTimeMillis()} " +
+                                    "uniqueId=${newDataSource.uniqueId} name=${newDataSource.name}"
+                        )
                         launch {
                             // JdbcDriverManagerImpl's own DbPsiFacade.TOPIC listener force-releases any
                             // active driver whose captured LocalDataSource instance isn't identity-equal
@@ -55,6 +75,10 @@ class MyProjectActivity : ProjectActivity {
                                     // so `!==` can wrongly treat the data source you're actively using as old.
                                     if (dataSource.uniqueId != newDataSource.uniqueId && canClose(session)) {
                                         val configuration = session.configuration
+                                        thisLogger().warn(
+                                            "[single-conn-diag] closing old session t=${System.currentTimeMillis()} " +
+                                                    "uniqueId=${dataSource.uniqueId} name=${dataSource.name}"
+                                        )
                                         close(session)
 
                                         // close(session) only tears down the console session UI object; it
@@ -91,13 +115,19 @@ class MyProjectActivity : ProjectActivity {
         dataSource: LocalDataSource,
         timeoutMs: Long = 5000
     ) {
-        withTimeoutOrNull(timeoutMs.milliseconds) {
+        val start = System.currentTimeMillis()
+        val settled = withTimeoutOrNull(timeoutMs.milliseconds) {
             while (!isIdentitySettled(project, dataSource)) {
                 delay(50.milliseconds)
             }
+            true
         }
         // On timeout, fall through anyway: better to proceed than to leave old connections open
         // forever because this data source never converges (e.g. a temporary/detached data source
         // that DbPsiFacade never tracks).
+        thisLogger().warn(
+            "[single-conn-diag] awaitIdentitySettled uniqueId=${dataSource.uniqueId} " +
+                    "result=${if (settled == true) "settled" else "TIMED OUT"} elapsedMs=${System.currentTimeMillis() - start}"
+        )
     }
 }
